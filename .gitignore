@@ -1,0 +1,9 @@
+.env
+__pycache__/
+*.pyc
+.venv/
+venv/
+.cache/
+corp_code_cache/
+*.zip
+report_*.md
