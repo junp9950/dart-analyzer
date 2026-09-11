@@ -1,0 +1,17 @@
+name: Deploy to VM
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+    steps:
+      - name: Deploy on VM
+        run: |
+          cd ~/dart-analyzer
+          git pull origin main
+          .venv/bin/pip install -q -r requirements.txt
+          sudo systemctl restart dart-analyzer
+          echo "Deploy complete"
