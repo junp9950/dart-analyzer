@@ -58,3 +58,19 @@ python dart_analyzer.py --compare 디아이 저스템 산일전기
 python dart_analyzer.py 디아이 --bonds-only
 python dart_analyzer.py 디아이 --markdown report.md
 ```
+
+## 웹서버 (배포됨)
+
+FastAPI로 감싼 웹 버전이 Azure VM(20.196.212.146)에 `dart-analyzer` systemd 서비스로 떠있음.
+
+- http://20.196.212.146:8080/ — 검색 폼
+- http://20.196.212.146:8080/analyze?q=종목명 — HTML 리포트
+- http://20.196.212.146:8080/api/analyze?q=종목명 — JSON API
+
+`main` 브랜치에 push하면 VM의 self-hosted runner(`jeewoong-test-vm-dart`)가 자동으로 pull + 재시작함 (stock_option_pj와 같은 방식).
+
+## 다음에 할 일 (2026-09-11 기준 우선순위)
+
+1. 사업보고서 원문 키워드 검색 (대여금/특수관계자 등 — 하이브리드 폴백)
+2. 사채 발행 전후 ±10영업일 주가 변동
+3. 위 "지배구조·회계 신뢰성 체크리스트" 11개 항목
