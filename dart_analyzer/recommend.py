@@ -71,9 +71,13 @@ def build_recommendations(top_n: int = 10, fundamentals_pool: int = 15) -> tuple
     for cand in pool:
         try:
             corp = find_corp(cand.code)
+            # 올해 사업보고서는 연초~3월 전까지는 아직 안 나온 상태라, 3개년 범위로 조회해서
+            # fetch_financial_trend가 실제 존재하는 연도만 추려내도록 함 (report.py와 동일 패턴).
+            # 2개년으로 고정하면 최신 연도 데이터가 없을 때 1개년만 남아 earnings_auto_score가
+            # 통째로 0으로 나오는 버그가 있었음.
             financials = fetch_financial_trend(
                 corp.corp_code,
-                [str(y) for y in range(_this_year() - 1, _this_year() + 1)],  # 최근 2개년만 (API 호출 절약)
+                [str(y) for y in range(_this_year() - 2, _this_year() + 1)],
                 REPORT_CODES["annual"],
                 "CFS",
             )
