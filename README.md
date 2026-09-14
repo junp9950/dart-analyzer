@@ -63,11 +63,15 @@ python dart_analyzer.py 디아이 --markdown report.md
 
 ## 웹서버 (배포됨)
 
-FastAPI로 감싼 웹 버전이 Azure VM(20.196.212.146)에 `dart-analyzer` systemd 서비스로 떠있음.
+FastAPI로 감싼 웹 버전이 Azure VM(20.196.212.146)에 `dart-analyzer` systemd 서비스(포트 8080)로 떠있고,
+Caddy가 앞단에서 HTTPS(Let's Encrypt, sslip.io 매직 도메인)를 처리함.
 
-- http://20.196.212.146:8080/ — 검색 폼
-- http://20.196.212.146:8080/analyze?q=종목명 — HTML 리포트
-- http://20.196.212.146:8080/api/analyze?q=종목명 — JSON API
+- https://dart.20-196-212-146.sslip.io/ — 검색 폼 (HTTPS, 추천)
+- https://dart.20-196-212-146.sslip.io/analyze?q=종목명 — HTML 리포트
+- https://dart.20-196-212-146.sslip.io/api/analyze?q=종목명 — JSON API
+- http://20.196.212.146:8080/ 로 직접 접속도 되지만 평문(HTTP)
+
+Caddy 설정은 VM의 `/etc/caddy/Caddyfile` (같은 Caddy가 stock_option_pj도 `stock.20-196-212-146.sslip.io`로 서빙).
 
 `main` 브랜치에 push하면 VM의 self-hosted runner(`jeewoong-test-vm-dart`)가 자동으로 pull + 재시작함 (stock_option_pj와 같은 방식).
 
