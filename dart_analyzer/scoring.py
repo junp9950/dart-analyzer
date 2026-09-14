@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date, timedelta
 
 from dart_analyzer.report import CompanyReport
 
@@ -55,7 +54,7 @@ def _score_financial_health(report: CompanyReport) -> CategoryScore:
 
     snaps = report.financials
     if not snaps:
-        reasons.append(ScoreReason(0, "재무 데이터 없음 — 평가 불가, 만점 유지"))
+        reasons.append(ScoreReason(0, "재무 데이터 없음(평가 불가, 만점 유지)"))
         return CategoryScore("재무 건전성", max_score, score, reasons)
 
     latest = snaps[-1]
@@ -99,24 +98,30 @@ def _score_funding_health(report: CompanyReport) -> CategoryScore:
     score = max_score
     reasons: list[ScoreReason] = []
 
-    recent_cutoff = date.today() - timedelta(days=365 * 2)
-    recent_bonds = [
-        b for b in report.bonds
-        if (b.payment_date or b.resolution_date) and (b.payment_date or b.resolution_date) >= recent_cutoff
-    ]
-    private_bonds = [b for b in recent_bonds if b.issue_method == "사모"]
+    # report.bonds는 이미 build_report(years_back=...)가 조회한 기간으로 제한되어 있으므로 그대로 사용.
+    private_bonds = [b for b in report.bonds if b.issue_method == "사모"]
 
+    # 건수 자체가 핵심 신호 — 재무가 건전해도 CB/BW/EB를 반복 발행하면 주주가치 희석 위험.
     if len(private_bonds) >= 3:
-        score -= 15
-        reasons.append(ScoreReason(-15, f"최근 2년간 사모 CB/BW/EB {len(private_bonds)}건 (잦은 사모 자금조달)"))
-    elif len(private_bonds) >= 1:
-        score -= 7
-        reasons.append(ScoreReason(-7, f"최근 2년간 사모 CB/BW/EB {len(private_bonds)}건"))
+        score -= 20
+        reasons.append(ScoreReason(-20, f"조회 기간 내 사모 CB/BW/EB {len(private_bonds)}건 (매우 잦은 사모 자금조달)"))
+    elif len(private_bonds) == 2:
+        score -= 12
+        reasons.append(ScoreReason(-12, f"조회 기간 내 사모 CB/BW/EB {len(private_bonds)}건"))
+    elif len(private_bonds) == 1:
+        score -= 5
+        reasons.append(ScoreReason(-5, f"조회 기간 내 사모 CB/BW/EB {len(private_bonds)}건"))
 
-    drop_on_issue = [b for b in recent_bonds if b.price_change_before_pct is not None and b.price_change_before_pct < -5]
+    drop_on_issue = [b for b in report.bonds if b.price_change_before_pct is not None and b.price_change_before_pct < -5]
     if drop_on_issue:
         score -= 5
         reasons.append(ScoreReason(-5, f"주가 약세 구간(발행전 10일 -5% 이상)에 발행된 사채 {len(drop_on_issue)}건"))
+
+    # 주가가 오른 직후 발행 — 유리한 전환/교환가액 확보 목적의 기회주의적 발행 타이밍일 수 있음.
+    rise_on_issue = [b for b in report.bonds if b.price_change_before_pct is not None and b.price_change_before_pct > 5]
+    if rise_on_issue:
+        score -= 5
+        reasons.append(ScoreReason(-5, f"주가 상승 직후(발행전 10일 +5% 이상) 발행된 사채 {len(rise_on_issue)}건 (기회주의적 발행 타이밍 의심)"))
 
     recent_caps = [c for c in report.capital_increases]  # 이미 build_report에서 조회기간이 years_back으로 제한됨
     third_party = [c for c in recent_caps if "제3자배정" in c.method]
@@ -139,7 +144,7 @@ def _score_audit_trust(report: CompanyReport) -> CategoryScore:
     reasons: list[ScoreReason] = []
 
     if not report.audit_opinions:
-        reasons.append(ScoreReason(0, "감사의견 데이터 없음 — 평가 불가, 만점 유지"))
+        reasons.append(ScoreReason(0, "감사의견 데이터 없음(평가 불가, 만점 유지)"))
         return CategoryScore("감사/회계 신뢰성", max_score, score, reasons)
 
     latest = report.audit_opinions[0]
@@ -187,13 +192,24 @@ def _score_governance_risk(report: CompanyReport) -> CategoryScore:
     hit_keywords = {h.keyword for h in report.keyword_hits}
     risky_kw = hit_keywords & {"대여금", "대납", "지급보증", "신용공여", "질권"}
     if risky_kw:
-        score -= min(8, len(risky_kw) * 3)
-        reasons.append(ScoreReason(-min(8, len(risky_kw) * 3), f"원문에서 발견된 위험 키워드: {', '.join(sorted(risky_kw))}"))
+        penalty = min(12, len(risky_kw) * 3)
+        score -= penalty
+        reasons.append(ScoreReason(-penalty, f"원문에서 발견된 위험 키워드: {', '.join(sorted(risky_kw))} (대주주/계열사 자금거래 가능성, 원문 확인 필요)"))
 
     score = max(0, score)
     if not reasons:
         reasons.append(ScoreReason(0, "특이사항 없음"))
     return CategoryScore("지배구조 리스크", max_score, score, reasons)
+
+
+def _dividend_yield_pct(report: CompanyReport) -> float | None:
+    for d in report.dividends:
+        if d.label == "현금배당수익률(%)" and d.stock_kind in ("보통주", "-"):
+            try:
+                return float(d.this_term)
+            except (TypeError, ValueError):
+                continue
+    return None
 
 
 def _score_shareholder_return(report: CompanyReport) -> CategoryScore:
@@ -205,9 +221,13 @@ def _score_shareholder_return(report: CompanyReport) -> CategoryScore:
         d.label == "주당 현금배당금(원)" and d.this_term not in ("-", "0", "", None)
         for d in report.dividends
     )
+    yield_pct = _dividend_yield_pct(report)
     if not has_dividend:
         score -= 5
         reasons.append(ScoreReason(-5, "당기 배당 미실시 (성장주는 정상일 수 있음)"))
+    elif yield_pct is not None and yield_pct < 1.5:
+        score -= 3
+        reasons.append(ScoreReason(-3, f"배당은 있으나 배당수익률 {yield_pct:.1f}% (형식적 수준, 실질적 주주환원 미흡)"))
 
     controller = next((s for s in report.shareholders if "본인" in s.relation), None)
     if controller and controller.end_ratio is not None and controller.end_ratio < 10:
