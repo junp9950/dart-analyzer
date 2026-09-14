@@ -49,6 +49,7 @@ def index() -> str:
     <h2>DART Analyzer</h2>
     <form action="/analyze" method="get">
       <input name="q" placeholder="종목명 또는 종목코드" style="padding:8px;width:250px">
+      <label style="margin-left:8px"><input type="checkbox" name="doc_search" value="1"> 원문 키워드 검색 포함(느림)</label>
       <button type="submit" style="padding:8px 16px">조회</button>
     </form>
     </body></html>
@@ -56,9 +57,9 @@ def index() -> str:
 
 
 @app.get("/analyze", response_class=HTMLResponse)
-def analyze(q: str = Query(..., description="종목명 또는 종목코드")) -> str:
+def analyze(q: str = Query(..., description="종목명 또는 종목코드"), doc_search: bool = False) -> str:
     try:
-        report = build_report(q)
+        report = build_report(q, doc_search=doc_search)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     md = report_to_markdown(report)
