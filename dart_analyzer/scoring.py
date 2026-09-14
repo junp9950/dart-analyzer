@@ -221,13 +221,22 @@ def _score_shareholder_return(report: CompanyReport) -> CategoryScore:
         d.label == "주당 현금배당금(원)" and d.this_term not in ("-", "0", "", None)
         for d in report.dividends
     )
+    # 배당수익률 기준: 은행 정기예금 금리(~3.5%)와 코스피 평균(~1.5~2.5%) 대비로 판단.
+    # 1%대는 무위험 예금보다도 낮아 사실상 형식적 배당에 가까움.
     yield_pct = _dividend_yield_pct(report)
     if not has_dividend:
         score -= 5
         reasons.append(ScoreReason(-5, "당기 배당 미실시 (성장주는 정상일 수 있음)"))
-    elif yield_pct is not None and yield_pct < 1.5:
-        score -= 3
-        reasons.append(ScoreReason(-3, f"배당은 있으나 배당수익률 {yield_pct:.1f}% (형식적 수준, 실질적 주주환원 미흡)"))
+    elif yield_pct is not None:
+        if yield_pct < 1.0:
+            score -= 5
+            reasons.append(ScoreReason(-5, f"배당수익률 {yield_pct:.1f}% (사실상 형식적 배당, 예금금리보다 크게 낮음)"))
+        elif yield_pct < 2.0:
+            score -= 4
+            reasons.append(ScoreReason(-4, f"배당수익률 {yield_pct:.1f}% (예금금리·시장평균 대비 낮음, 실질적 주주환원 미흡)"))
+        elif yield_pct < 3.0:
+            score -= 1
+            reasons.append(ScoreReason(-1, f"배당수익률 {yield_pct:.1f}% (시장 평균 수준)"))
 
     controller = next((s for s in report.shareholders if "본인" in s.relation), None)
     if controller and controller.end_ratio is not None and controller.end_ratio < 10:
