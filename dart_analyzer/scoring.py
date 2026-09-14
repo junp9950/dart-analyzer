@@ -9,11 +9,11 @@ from dart_analyzer.report import CompanyReport
 # 참고용 스크리닝 도구로만 쓸 것.
 
 CATEGORY_MAX = {
-    "재무 건전성": 30,
-    "자금조달 건전성": 25,
+    "재무 건전성": 25,
+    "자금조달 건전성": 20,
     "감사/회계 신뢰성": 20,
     "지배구조 리스크": 15,
-    "주주환원/안정성": 10,
+    "주주환원/안정성": 20,
 }
 
 
@@ -237,6 +237,39 @@ def _score_shareholder_return(report: CompanyReport) -> CategoryScore:
         elif yield_pct < 3.0:
             score -= 1
             reasons.append(ScoreReason(-1, f"배당수익률 {yield_pct:.1f}% (시장 평균 수준)"))
+
+    # 배당성향(%) — 번 돈보다 많이 배당하는 게 반복되면, 오너/특수관계인 지분이 클수록
+    # "회사에서 개인으로 현금을 빼가는" 구조일 위험이 있음.
+    payout_ratios: list[float] = []
+    for d in report.dividends:
+        if "현금배당성향" in d.label:
+            for term in (d.this_term, d.prev_term):
+                try:
+                    payout_ratios.append(float(term))
+                except (TypeError, ValueError):
+                    continue
+    high_payout_years = [p for p in payout_ratios if p > 100]
+    if len(high_payout_years) >= 2:
+        score -= 6
+        reasons.append(ScoreReason(-6, "최근 2개년 이상 배당성향 100% 초과 (당기순이익보다 많이 배당), 오너 지분율이 높으면 현금 추출 구조일 위험"))
+    elif len(high_payout_years) == 1:
+        score -= 3
+        reasons.append(ScoreReason(-3, "배당성향 100% 초과 연도 있음 (당기순이익보다 많이 배당)"))
+
+    # 오너/특수관계인 지분 집중 — 기관/외국인 등 견제 세력 없이 오너 일가가 과반에
+    # 가깝게 지분을 몰아쥐면, 자금 유용·일감몰아주기 등 사금고화 위험이 구조적으로 커짐.
+    insider_total_row = next(
+        (s for s in report.shareholders if s.name.strip() in ("계", "합계") and s.stock_kind in ("보통주", "-")),
+        None,
+    )
+    insider_ratio = insider_total_row.end_ratio if insider_total_row else None
+    if insider_ratio is None:
+        insider_ratio = sum(
+            s.end_ratio or 0 for s in report.shareholders if any(k in s.relation for k in ("본인", "특수관계인", "주요주주"))
+        ) or None
+    if insider_ratio is not None and insider_ratio >= 30:
+        score -= 5
+        reasons.append(ScoreReason(-5, f"오너/특수관계인 합산 지분율 {insider_ratio:.1f}% (30% 이상, 견제 세력 없는 집중 지배구조 위험)"))
 
     controller = next((s for s in report.shareholders if "본인" in s.relation), None)
     if controller and controller.end_ratio is not None and controller.end_ratio < 10:
