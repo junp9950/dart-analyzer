@@ -5,8 +5,9 @@ import re
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import HTMLResponse
 
-from dart_analyzer.checklist import build_checklist
+from dart_analyzer.checklist import EARNINGS_AUTO_MAX, TECH_AUTO_MAX, build_checklist
 from dart_analyzer.markdown_export import report_to_markdown
+from dart_analyzer.recommend import build_recommendations
 from dart_analyzer.report import build_report
 from dart_analyzer.scoring import InvestmentScore, calculate_investment_score
 
@@ -228,6 +229,7 @@ def index() -> str:
     <div class="card">
       {_search_bar_html()}
     </div>
+    <p><a href="/recommend">&rarr; 오늘의 매수 후보 스크리너 (자동 채점 기준 Top 10)</a></p>
     """
     return _page_shell("DART Analyzer", body)
 
@@ -461,3 +463,42 @@ def checklist(q: str = Query(..., description="종목명 또는 종목코드")) 
 
     body = topbar + sections_html + pl_card + mandatory_card + total_bar + f"<script>{_CHECKLIST_JS}</script>"
     return _page_shell(f"{corp.corp_name} 체크리스트 - DART Analyzer", body)
+
+
+@app.get("/recommend", response_class=HTMLResponse)
+def recommend(top_n: int = 10, pool: int = 15) -> str:
+    results, error = build_recommendations(top_n=top_n, fundamentals_pool=pool)
+
+    body = f"""
+    <div class="topbar">
+      <h1>오늘의 매수 후보 스크리너</h1>
+    </div>
+    <p class="note">stock_option_pj 기술·수급 지표와 dart-analyzer 실적 지표만으로 기계적으로 채점한 결과입니다.
+    업종·밸류에이션·시장 매크로·손익비는 자동 채점이 불가능해 빠져있으니 참고용으로만 보세요.
+    기술점수 상위 {pool}개 중 실적까지 더해 재정렬한 Top {top_n}입니다.</p>
+    """
+
+    if error:
+        body += f"<div class='card error'>{error}</div>"
+        return _page_shell("매수 후보 스크리너 - DART Analyzer", body)
+
+    rows = []
+    for i, r in enumerate(results, start=1):
+        e_score = f"{r.earnings_score:.1f}" if r.earnings_score is not None else "-"
+        rows.append(f"""
+        <tr>
+          <td>{i}</td>
+          <td><a href="/checklist?q={r.code}">{r.name}</a> <span style="color:var(--muted)">({r.code})</span></td>
+          <td style="text-align:right">{r.tech_score:.1f} / {TECH_AUTO_MAX:.0f}</td>
+          <td style="text-align:right">{e_score} / {EARNINGS_AUTO_MAX:.0f}</td>
+          <td style="text-align:right"><b>{r.combined_score:.1f} / {r.combined_max:.0f}</b></td>
+          <td style="text-align:right">{r.close_price:,.0f}원 ({r.change_pct:+.1f}%)</td>
+        </tr>""")
+
+    body += f"""
+    <table>
+      <tr><th>순위</th><th>종목</th><th>기술·수급</th><th>실적</th><th>합산</th><th>현재가</th></tr>
+      {''.join(rows)}
+    </table>
+    """
+    return _page_shell("매수 후보 스크리너 - DART Analyzer", body)

@@ -63,6 +63,76 @@ def _tier(value: float | None, thresholds: list[tuple[float, float]], default: f
     return default
 
 
+# 스크리너(다종목 스캔)에서 재사용하는 순수 채점 함수 — API 호출 없이 이미 가진 데이터만으로 계산.
+TECH_AUTO_MAX = 10.0  # ma(2) + vol_flow(4) + rsi(2) + chase(2)
+EARNINGS_AUTO_MAX = 14.0  # 매출(3) + 영업이익(4) + ROE(2) + 영업이익률개선(2) + 부채비율(3)
+
+
+def technical_auto_score(tech: dict) -> tuple[float, dict]:
+    """stock_option_pj 스크리너 한 종목 dict -> (점수, 세부내역). 중복 카운트 없이 지표당 1번만 반영."""
+    if not tech:
+        return 0.0, {}
+    ma = tech.get("ma_score")
+    ma_score = _tier(ma, [(1.5, 2), (0.5, 1), (-999, 0)])
+
+    rsi_val = tech.get("rsi_14")
+    rsi_score = 2.0 if (rsi_val is not None and rsi_val < 70) else (1.0 if (rsi_val is not None and rsi_val < 80) else 0.0)
+
+    vol_surge = tech.get("volume_surge") or 0
+    fnb, inb = tech.get("foreign_net_buy") or 0, tech.get("institution_net_buy") or 0
+    flow_ok = fnb > 0 or inb > 0
+    vol_flow_score = (2.0 if vol_surge >= 1.5 else (1.0 if vol_surge >= 1.0 else 0.0)) + (2.0 if flow_ok else 0.0)
+
+    chg = tech.get("change_pct")
+    chase_score = 2.0 if (chg is not None and chg < 5) else (1.0 if (chg is not None and chg < 8) else 0.0)
+
+    total = ma_score + rsi_score + vol_flow_score + chase_score
+    details = {
+        "ma_score": ma, "rsi_14": rsi_val, "volume_surge": vol_surge,
+        "foreign_net_buy": fnb, "institution_net_buy": inb, "change_pct": chg,
+    }
+    return total, details
+
+
+def earnings_auto_score(financials: list) -> tuple[float, dict]:
+    """dart-analyzer FinancialSnapshot 리스트(연도순) -> (점수, 세부내역)."""
+    if not financials or len(financials) < 2:
+        return 0.0, {}
+    prev, curr = financials[-2], financials[-1]
+    pv, cv = prev.values, curr.values
+
+    def growth_pct(key):
+        p, c = pv.get(key), cv.get(key)
+        if p and c and p != 0:
+            return (c - p) / abs(p) * 100
+        return None
+
+    rg = growth_pct("revenue")
+    rev_score = _tier(rg, [(10, 3), (0, 2), (-999, 0)])
+
+    og = growth_pct("operating_income")
+    op_score = _tier(og, [(15, 4), (0, 2), (-999, 0)])
+
+    roe_val = None
+    ni, eq = cv.get("net_income"), cv.get("total_equity")
+    if ni is not None and eq:
+        roe_val = ni / eq * 100
+    roe_score = _tier(roe_val, [(15, 2), (8, 1), (-999, 0)])
+
+    prev_margin = (pv.get("operating_income") / pv["revenue"] * 100) if pv.get("revenue") else None
+    curr_margin = (cv.get("operating_income") / cv["revenue"] * 100) if cv.get("revenue") else None
+    margin_score = 2.0 if (prev_margin is not None and curr_margin is not None and curr_margin > prev_margin) else 0.0
+
+    debt_score = _tier(-curr.debt_ratio if curr.debt_ratio is not None else None, [(-100, 3), (-150, 2), (-200, 1), (-99999, 0)])
+
+    total = rev_score + op_score + roe_score + margin_score + debt_score
+    details = {
+        "revenue_growth_pct": rg, "operating_income_growth_pct": og, "roe_pct": roe_val,
+        "prev_margin_pct": prev_margin, "curr_margin_pct": curr_margin, "debt_ratio": curr.debt_ratio,
+    }
+    return total, details
+
+
 def build_checklist(query: str, dart_report=None) -> tuple[list[ChecklistSection], dict]:
     """자동 채움 가능한 항목은 auto_score를 채우고, 나머지는 None(수동 입력)으로 둔 30개 체크리스트를 만든다.
     dart_report: report.CompanyReport (재무 데이터 자동 채움용, 없으면 실적/밸류에이션은 전부 수동)
