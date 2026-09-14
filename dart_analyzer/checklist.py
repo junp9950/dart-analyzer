@@ -43,6 +43,16 @@ def _fetch_technical(query: str) -> dict | None:
     return None
 
 
+def _fetch_sector_info(code: str) -> dict | None:
+    """stock_option_pj가 이미 매일 집계하는 업종 수급 데이터를 종목 코드로 조회."""
+    try:
+        resp = requests.get(f"{STOCK_API_BASE}/sectors/for-stock/{code}", timeout=10)
+        resp.raise_for_status()
+        return resp.json()
+    except Exception:
+        return None
+
+
 def _fetch_market_signal_detail() -> dict | None:
     try:
         resp = requests.get(f"{STOCK_API_BASE}/market-signal/details", timeout=10)
@@ -157,14 +167,32 @@ def build_checklist(query: str, dart_report=None) -> tuple[list[ChecklistSection
         ChecklistItem(7, "시장 변동성 과도하지 않음", 2, None),
     ])
 
-    # ── ② 업종 (15) — 종목-섹터 매핑 자동 연동은 아직 미구현, 전부 수동
+    # ── ② 업종 (15) — stock_option_pj가 이미 집계하는 업종 수급 데이터로 일부 자동
+    stock_code = (tech.get("code") if tech else None) or (query if query.isdigit() else None)
+    sector_info = _fetch_sector_info(stock_code) if stock_code else None
+    sec_strength = sec_updown = sec_flow = None
+    sec_strength_note = sec_updown_note = sec_flow_note = ""
+    if sector_info:
+        rank_pct = sector_info.get("flow_score_rank_pct") or 0
+        sec_strength = _tier(rank_pct, [(80, 3), (60, 2), (40, 1), (-1, 0)])
+        sec_strength_note = f"{sector_info['sector_name']} 업종 수급강도 상위 {100 - rank_pct:.0f}%"
+
+        up, down = sector_info.get("up_count") or 0, sector_info.get("down_count") or 0
+        sec_updown = 2.0 if up > down else 0.0
+        sec_updown_note = f"업종 내 상승 {up} / 하락 {down}"
+
+        streak = sector_info.get("buy_streak") or 0
+        combined = sector_info.get("combined_net_buy") or 0
+        sec_flow = _tier(streak, [(3, 3), (1, 2), (0, 0)]) if streak > 0 else (1.0 if combined > 0 else 0.0)
+        sec_flow_note = f"업종 수급 연속 {streak}일" + (f", 순매수 {combined:,.0f}" if combined else "")
+
     sector = ChecklistSection("업종", 15, [
-        ChecklistItem(8, "해당 업종이 시장 대비 강함", 3, None),
-        ChecklistItem(9, "업종 내 상승 종목 수 증가", 2, None),
+        ChecklistItem(8, "해당 업종이 시장 대비 강함", 3, sec_strength, sec_strength_note),
+        ChecklistItem(9, "업종 내 상승 종목 수 증가", 2, sec_updown, sec_updown_note),
         ChecklistItem(10, "업종 거래대금 증가", 2, None),
         ChecklistItem(11, "업종 실적 전망 개선", 3, None),
         ChecklistItem(12, "업종에 명확한 성장 촉매 존재", 2, None),
-        ChecklistItem(13, "외국인·기관의 업종 수급 개선", 3, None),
+        ChecklistItem(13, "외국인·기관의 업종 수급 개선", 3, sec_flow, sec_flow_note),
     ])
 
     # ── ③ 기업 실적 (20) — dart-analyzer 재무 데이터로 일부 자동
@@ -214,10 +242,29 @@ def build_checklist(query: str, dart_report=None) -> tuple[list[ChecklistSection
         ChecklistItem(20, "부채·이자 부담 안정", 3, debt_score, debt_note),
     ])
 
-    # ── ④ 밸류에이션 (15) — PER/PBR 등은 종목별 EPS/BPS 별도 조회 필요, 전부 수동
+    # ── ④ 밸류에이션 (15) — market_cap(stock_option_pj) + 순이익/자본총계(DART)로 PER/PBR만 근사 자동화.
+    # 과거 시계열 PER/PBR, 동종업계 비교, 목표주가는 데이터 부재로 여전히 수동.
+    per_score = pbr_score = None
+    per_note = pbr_note = ""
+    market_cap = tech.get("market_cap") if tech else None
+    if market_cap and dart_report and len(dart_report.financials) >= 1:
+        curr = dart_report.financials[-1]
+        ni, eq = curr.values.get("net_income"), curr.values.get("total_equity")
+        if ni and ni > 0:
+            per = market_cap / ni
+            per_score = _tier(-per, [(-10, 3), (-15, 2), (-25, 1), (-99999, 0)])
+            per_note = f"PER {per:.1f}배 (시총 {market_cap/1e8:,.0f}억 / 순이익 {ni/1e8:,.0f}억)"
+        if eq and eq > 0:
+            pbr = market_cap / eq
+            roe_ratio = (ni / eq * 100) if ni else 0
+            # ROE 대비 PBR 합리성: PBR이 ROE/10보다 낮으면 저평가 근사치
+            justified = roe_ratio / 10 if roe_ratio else 1.0
+            pbr_score = 3.0 if pbr <= justified else (1.5 if pbr <= justified * 1.5 else 0.0)
+            pbr_note = f"PBR {pbr:.2f}배 (ROE {roe_ratio:.1f}% 대비 근사 적정 {justified:.2f}배)"
+
     valuation = ChecklistSection("밸류에이션", 15, [
-        ChecklistItem(21, "현재 PER이 성장률 대비 합리적", 3, None),
-        ChecklistItem(22, "PBR이 ROE 대비 합리적", 3, None),
+        ChecklistItem(21, "현재 PER이 성장률 대비 합리적", 3, per_score, per_note),
+        ChecklistItem(22, "PBR이 ROE 대비 합리적", 3, pbr_score, pbr_note),
         ChecklistItem(23, "과거 평균 PER/PBR보다 저평가", 2, None),
         ChecklistItem(24, "동종업계 대비 저평가", 2, None),
         ChecklistItem(25, "목표주가 대비 상승여력 충분", 3, None),

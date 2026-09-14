@@ -485,19 +485,20 @@ def recommend(top_n: int = 10, pool: int = 15) -> str:
     rows = []
     for i, r in enumerate(results, start=1):
         e_score = f"{r.earnings_score:.1f}" if r.earnings_score is not None else "-"
+        pct100 = round(r.combined_score / r.combined_max * 100) if r.combined_max else 0
         rows.append(f"""
         <tr>
           <td>{i}</td>
           <td><a href="/checklist?q={r.code}">{r.name}</a> <span style="color:var(--muted)">({r.code})</span></td>
           <td style="text-align:right">{r.tech_score:.1f} / {TECH_AUTO_MAX:.0f}</td>
           <td style="text-align:right">{e_score} / {EARNINGS_AUTO_MAX:.0f}</td>
-          <td style="text-align:right"><b>{r.combined_score:.1f} / {r.combined_max:.0f}</b></td>
+          <td style="text-align:right"><b>{r.combined_score:.1f} / {r.combined_max:.0f}</b> <span style="color:var(--muted)">({pct100}점)</span></td>
           <td style="text-align:right">{r.close_price:,.0f}원 ({r.change_pct:+.1f}%)</td>
         </tr>""")
 
     body += f"""
     <table>
-      <tr><th>순위</th><th>종목</th><th>기술·수급</th><th>실적</th><th>합산</th><th>현재가</th></tr>
+      <tr><th>순위</th><th>종목</th><th>기술·수급</th><th>실적</th><th>합산 (100점 환산)</th><th>현재가</th></tr>
       {''.join(rows)}
     </table>
     """
