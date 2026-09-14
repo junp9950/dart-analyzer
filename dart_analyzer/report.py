@@ -6,7 +6,13 @@ from datetime import date, timedelta
 from dart_analyzer.bonds import BondIssuance, attach_price_around_issuance, fetch_bond_issuances
 from dart_analyzer.corp_code import Corp, find_corp
 from dart_analyzer.corp_group import Affiliate, DividendItem, fetch_affiliates, fetch_dividend_info
-from dart_analyzer.documents import KeywordHit, fetch_document_text, find_recent_reports, search_keywords
+from dart_analyzer.documents import (
+    KeywordHit,
+    fetch_document_text,
+    find_recent_reports,
+    search_bw_allottee_hits,
+    search_keywords,
+)
 from dart_analyzer.financials import REPORT_CODES, FinancialSnapshot, fetch_financial_trend
 from dart_analyzer.governance import (
     AuditOpinion,
@@ -45,15 +51,31 @@ def _attach_keyword_search(report: CompanyReport, corp_code: str) -> None:
         bgn_de = (date.today() - timedelta(days=400)).strftime("%Y%m%d")
         end_de = date.today().strftime("%Y%m%d")
         recent = find_recent_reports(corp_code, bgn_de, end_de)
-        if not recent:
-            return
-        target = recent[0]
-        text = fetch_document_text(target.rcept_no)
-        report.keyword_hits = search_keywords(text)
-        report.keyword_source_report = f"{target.report_name} ({target.rcept_date})"
+        if recent:
+            target = recent[0]
+            text = fetch_document_text(target.rcept_no)
+            report.keyword_hits = search_keywords(text)
+            report.keyword_source_report = f"{target.report_name} ({target.rcept_date})"
     except Exception:
         # 원문 파싱은 부가 기능 — 실패해도 나머지 리포트는 정상 출력
         report.keyword_hits = []
+
+    # BW(신주인수권부사채) 발행결정 원문에서 오너/특수관계인 이름이 워런트 배정과
+    # 함께 언급되는지 확인 — 최신 정기보고서 검색으로는 발행 당시 배정 내역을
+    # 놓치는 경우가 있어(디아이 사례에서 확인) 별도로 원본 공시를 더 연다.
+    try:
+        owner_names = [
+            s.name for s in report.shareholders
+            if any(k in s.relation for k in ("본인", "특수관계인")) and s.name not in ("계", "-")
+        ][:5]
+        bw_targets = [
+            (b.rcept_no, str(b.payment_date or b.resolution_date or "-"))
+            for b in report.bonds if b.bond_type == "BW" and b.rcept_no
+        ]
+        bw_hits = search_bw_allottee_hits(bw_targets, owner_names)
+        report.keyword_hits.extend(bw_hits)
+    except Exception:
+        pass
 
 
 def build_report(query: str, years_back: int = 5, bonds_only: bool = False, doc_search: bool = False) -> CompanyReport:

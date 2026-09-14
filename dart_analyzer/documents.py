@@ -92,6 +92,39 @@ def fetch_document_text(rcept_no: str) -> str:
     return " ".join(texts)
 
 
+def search_bw_allottee_hits(
+    bw_rcept_nos: list[tuple[str, str]],  # (rcept_no, label) 쌍 — label은 표시용(예: "BW 2024-06-18")
+    owner_names: list[str],
+    context_chars: int = 80,
+) -> list[KeywordHit]:
+    """신주인수권부사채(BW) 발행결정 공시 원문 자체를 열어서, 최대주주/특수관계인 이름이
+    워런트(신주인수권) 배정 대상으로 언급되는지 찾는다.
+
+    최신 정기보고서만 검색하는 기본 search_keywords()로는 발행 당시 배정 내역을
+    놓치는 경우가 있어(예: 오너 개인이 BW의 신주인수권만 별도로 인수하는 구조),
+    사채 발행결정 원본 공시를 직접 열어서 확인한다. 공시 건수만큼 API 호출이
+    필요해 느릴 수 있음.
+    """
+    if not bw_rcept_nos or not owner_names:
+        return []
+
+    hits: list[KeywordHit] = []
+    for rcept_no, label in bw_rcept_nos:
+        try:
+            text = fetch_document_text(rcept_no)
+        except Exception:
+            continue
+        for name in owner_names:
+            idx = text.find(name)
+            if idx == -1:
+                continue
+            lo = max(0, idx - context_chars)
+            hi = min(len(text), idx + len(name) + context_chars)
+            snippet = text[lo:hi].strip()
+            hits.append(KeywordHit(keyword=f"{name} (BW 배정 원문: {label})", context=f"...{snippet}..."))
+    return hits
+
+
 def search_keywords(text: str, keywords: list[str] | None = None, context_chars: int = 60, max_hits_per_keyword: int = 5) -> list[KeywordHit]:
     """키워드별로 최대 max_hits_per_keyword개까지 주변 문맥을 잘라서 반환."""
     keywords = keywords or DEFAULT_KEYWORDS
