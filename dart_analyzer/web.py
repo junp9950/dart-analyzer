@@ -102,9 +102,16 @@ def _grade_class(grade: str) -> str:
 _GRADE_COLOR_VAR = {"good": "var(--good)", "ok": "var(--ok)", "warn": "var(--warn)", "bad": "var(--bad)"}
 
 
+_FAVICON = (
+    "data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22>"
+    "<text y=%22.9em%22 font-size=%2290%22>%F0%9F%93%8A</text></svg>"
+)
+
+
 def _page_shell(title: str, body: str) -> str:
     return (
-        f"<html><head><title>{title}</title><style>{_STYLE}</style></head>"
+        f"<html><head><title>{title}</title><link rel='icon' href=\"{_FAVICON}\">"
+        f"<style>{_STYLE}</style></head>"
         f"<body><div class='container'>{body}</div></body></html>"
     )
 
