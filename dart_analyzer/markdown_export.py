@@ -44,4 +44,10 @@ def report_to_markdown(report: CompanyReport, bonds_only: bool = False) -> str:
             lines.append(f"| {d.label} | {d.stock_kind} | {d.this_term} | {d.prev_term} | {d.before_prev_term} |")
         lines.append("")
 
+    if not bonds_only and report.keyword_hits:
+        lines += [f"## 원문 키워드 검색 결과 — {report.keyword_source_report}", "", "| 키워드 | 문맥 |", "|---|---|"]
+        for h in report.keyword_hits:
+            lines.append(f"| {h.keyword} | {h.context.replace('|', '/')} |")
+        lines.append("")
+
     return "\n".join(lines)

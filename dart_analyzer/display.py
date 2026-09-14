@@ -20,6 +20,7 @@ def render_report(report: CompanyReport, bonds_only: bool = False) -> None:
         _render_ownership(report)
         _render_affiliates(report)
         _render_dividends(report)
+        _render_keyword_hits(report)
 
 
 def _render_financials(report: CompanyReport) -> None:
@@ -135,4 +136,15 @@ def _render_dividends(report: CompanyReport) -> None:
     table.add_column("전전기")
     for d in report.dividends:
         table.add_row(d.label, d.stock_kind, d.this_term, d.prev_term, d.before_prev_term)
+    console.print(table)
+
+
+def _render_keyword_hits(report: CompanyReport) -> None:
+    if not report.keyword_hits:
+        return
+    table = Table(title=f"원문 키워드 검색 결과 ({report.keyword_source_report})")
+    table.add_column("키워드")
+    table.add_column("문맥")
+    for h in report.keyword_hits:
+        table.add_row(h.keyword, h.context)
     console.print(table)
