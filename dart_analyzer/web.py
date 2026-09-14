@@ -5,6 +5,7 @@ import re
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import HTMLResponse
 
+from dart_analyzer.checklist import build_checklist
 from dart_analyzer.markdown_export import report_to_markdown
 from dart_analyzer.report import build_report
 from dart_analyzer.scoring import InvestmentScore, calculate_investment_score
@@ -80,6 +81,33 @@ button:hover{opacity:.9}
 label{font-size:13px;color:var(--muted);display:flex;align-items:center;gap:6px}
 .note{color:var(--muted);font-size:12px;margin-top:8px}
 .error{color:var(--bad);font-size:14px}
+
+/* 체크리스트 */
+.cl-section{margin-bottom:16px}
+.cl-section-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px}
+.cl-section-head h3{font-size:14px;margin:0;color:var(--text)}
+.cl-section-score{font-variant-numeric:tabular-nums;color:var(--muted);font-size:13px}
+.cl-item{display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--border);font-size:13px}
+.cl-item:last-child{border-bottom:none}
+.cl-item .cl-label{flex:1}
+.cl-item .cl-auto-note{color:var(--muted);font-size:11.5px;display:block;margin-top:2px}
+.cl-item input[type=number]{
+  width:56px;background:#0d1117;border:1px solid var(--border);color:var(--text);
+  border-radius:6px;padding:5px 6px;font-size:13px;text-align:center;
+}
+.cl-item input[type=number].auto{border-color:var(--ok)}
+.cl-max{color:var(--muted);font-size:12px;width:36px}
+.cl-total-bar{
+  position:sticky;bottom:0;background:var(--panel);border:1px solid var(--border);border-radius:12px;
+  padding:16px 20px;margin-top:20px;display:flex;align-items:center;gap:20px;flex-wrap:wrap;
+}
+.cl-total-num{font-size:34px;font-weight:800}
+.cl-verdict{font-size:15px;font-weight:700;padding:6px 14px;border-radius:8px}
+.pl-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-top:10px}
+.pl-field label{display:block;margin-bottom:4px}
+.pl-field input[type=number]{width:100%;padding:8px 10px;font-size:13px}
+.mandatory-list{display:flex;flex-direction:column;gap:8px;margin-top:12px}
+.mandatory-list label{font-size:13px;color:var(--text)}
 """
 
 
@@ -225,6 +253,7 @@ def analyze(q: str = Query(..., description="종목명 또는 종목코드"), do
       <h1>{corp.corp_name} <span style="color:var(--muted);font-weight:400;font-size:16px">({corp.stock_code or corp.corp_code})</span></h1>
       <span class="badge {_grade_class(score.grade)}">{score.grade}</span>
     </div>
+    <p><a href="/checklist?q={corp.stock_code or corp.corp_code}">&rarr; 매수 체크리스트(100점) 작성하기</a></p>
     """
     body = topbar + _score_hero_html(score) + _report_to_html(md)
     return _page_shell(f"{corp.corp_name} - DART Analyzer", body)
@@ -282,3 +311,153 @@ def analyze_json(q: str = Query(...), doc_search: bool = False):
         ],
         "keyword_hits": [{"keyword": h.keyword, "context": h.context} for h in report.keyword_hits],
     }
+
+
+def _checklist_section_html(section, idx: int) -> str:
+    rows = []
+    for item in section.items:
+        is_auto = item.auto_score is not None
+        val = round(item.auto_score, 1) if is_auto else 0
+        cls = "auto" if is_auto else ""
+        note = f"<span class='cl-auto-note'>{item.auto_note}</span>" if item.auto_note else (
+            "<span class='cl-auto-note'>수동 입력</span>" if not is_auto else ""
+        )
+        rows.append(f"""
+        <div class="cl-item">
+          <div class="cl-label">{item.no}. {item.label}{note}</div>
+          <input type="number" class="{cls} cl-input" data-max="{item.max_score}" min="0" max="{item.max_score}"
+                 step="0.5" value="{val}" oninput="clRecalc()">
+          <span class="cl-max">/{item.max_score:g}</span>
+        </div>""")
+    return f"""
+    <div class="card cl-section">
+      <div class="cl-section-head"><h3>{idx}. {section.name}</h3>
+        <span class="cl-section-score">/ {section.max_score}</span></div>
+      {''.join(rows)}
+    </div>
+    """
+
+
+_CHECKLIST_JS = """
+function clRecalc(){
+  var sections = document.querySelectorAll('.cl-input');
+  var total = 0;
+  sections.forEach(function(inp){
+    var v = parseFloat(inp.value)||0;
+    var max = parseFloat(inp.dataset.max);
+    if (v > max) { v = max; inp.value = max; }
+    if (v < 0) { v = 0; inp.value = 0; }
+    total += v;
+  });
+
+  var price = parseFloat(document.getElementById('pl-price').value) || 0;
+  var target = parseFloat(document.getElementById('pl-target').value) || 0;
+  var stop = parseFloat(document.getElementById('pl-stop').value) || 0;
+  var profitPct = 0, lossPct = 0, ratio = 0;
+  if (price > 0) {
+    profitPct = (target - price) / price * 100;
+    lossPct = (price - stop) / price * 100;
+  }
+  var plScore = 0;
+  if (lossPct > 0) {
+    ratio = profitPct / lossPct;
+    if (ratio >= 3) plScore = 15;
+    else if (ratio >= 2) plScore = 12;
+    else if (ratio >= 1.5) plScore = 8;
+    else if (ratio >= 1) plScore = 4;
+    else plScore = 0;
+  }
+  document.getElementById('pl-profit').textContent = profitPct.toFixed(1) + '%';
+  document.getElementById('pl-loss').textContent = lossPct.toFixed(1) + '%';
+  document.getElementById('pl-ratio').textContent = ratio > 0 ? ratio.toFixed(2) : '-';
+  document.getElementById('pl-score').textContent = plScore.toFixed(0) + ' / 15';
+  document.getElementById('cond-a').checked = ratio >= 1.5;
+
+  total += plScore;
+
+  var grade = '매수 금지', cls='bad';
+  if (total >= 85) { grade = '적극 매수 (5/5)'; cls='good'; }
+  else if (total >= 80) { grade = '매수 (4/5)'; cls='good'; }
+  else if (total >= 70) { grade = '분할매수 (3/5)'; cls='ok'; }
+  else if (total >= 60) { grade = '관찰 (2/5)'; cls='warn'; }
+  else if (total >= 50) { grade = '보류 (1/5)'; cls='warn'; }
+  else { grade = '매수 금지 (0/5)'; cls='bad'; }
+
+  var mandatory = ['cond-a','cond-b','cond-c','cond-d'].every(function(id){
+    return document.getElementById(id).checked;
+  });
+  if (!mandatory) { grade = '매수 금지 (필수조건 미충족)'; cls='bad'; }
+
+  document.getElementById('cl-total-num').textContent = total.toFixed(1);
+  var verdictEl = document.getElementById('cl-verdict');
+  verdictEl.textContent = grade;
+  verdictEl.className = 'cl-verdict badge ' + cls;
+}
+window.addEventListener('DOMContentLoaded', clRecalc);
+"""
+
+
+@app.get("/checklist", response_class=HTMLResponse)
+def checklist(q: str = Query(..., description="종목명 또는 종목코드")) -> str:
+    topsearch = f"<div class='topsearch'>{_search_bar_html(value=q, compact=True)}</div>"
+    try:
+        report = build_report(q)
+    except ValueError as e:
+        body = f"{topsearch}<h1>DART Analyzer</h1><div class='card error'>오류: {e}</div>"
+        return _page_shell("DART Analyzer", body)
+
+    sections, ctx = build_checklist(q, dart_report=report)
+    tech = ctx.get("tech") or {}
+    current_price = tech.get("close_price") or ""
+
+    corp = report.corp
+    topbar = f"""
+    {topsearch}
+    <div class="topbar">
+      <h1>{corp.corp_name} 매수 체크리스트 <span style="color:var(--muted);font-weight:400;font-size:16px">({corp.stock_code or corp.corp_code})</span></h1>
+    </div>
+    <p class="note">자동 채움(초록 테두리)은 참고용 근사치입니다 — 특히 업종·밸류에이션·시장 매크로 항목은 데이터가 없어 전부 직접 입력해야 합니다.
+    {'스톡옵션pj 서버에 연결하지 못해 기술지표 자동 채움이 비활성화된 상태입니다.' if not tech else ''}</p>
+    """
+
+    sections_html = "".join(_checklist_section_html(s, i + 1) for i, s in enumerate(sections))
+
+    pl_card = f"""
+    <div class="card cl-section">
+      <div class="cl-section-head"><h3>6. 매매가격·손익비</h3><span class="cl-section-score">/ 15</span></div>
+      <div class="pl-grid">
+        <div class="pl-field"><label>현재가</label><input type="number" id="pl-price" value="{current_price}" oninput="clRecalc()"></div>
+        <div class="pl-field"><label>목표가</label><input type="number" id="pl-target" oninput="clRecalc()"></div>
+        <div class="pl-field"><label>손절가</label><input type="number" id="pl-stop" oninput="clRecalc()"></div>
+      </div>
+      <div class="pl-grid" style="margin-top:14px">
+        <div class="pl-field"><label>예상수익</label><b id="pl-profit">-</b></div>
+        <div class="pl-field"><label>예상손실</label><b id="pl-loss">-</b></div>
+        <div class="pl-field"><label>손익비</label><b id="pl-ratio">-</b></div>
+        <div class="pl-field"><label>이 항목 점수</label><b id="pl-score">0 / 15</b></div>
+      </div>
+    </div>
+    """
+
+    mandatory_card = """
+    <div class="card">
+      <h3 style="margin-top:0;font-size:14px">필수조건 (하나라도 미충족이면 점수와 무관하게 매수 금지)</h3>
+      <div class="mandatory-list">
+        <label><input type="checkbox" id="cond-a" onchange="clRecalc()" disabled> A. 손익비 &ge; 1.5 (위에서 자동 판정)</label>
+        <label><input type="checkbox" id="cond-b" onchange="clRecalc()"> B. 실적 악화가 심하지 않음</label>
+        <label><input type="checkbox" id="cond-c" onchange="clRecalc()"> C. 시장·업종이 동시에 붕괴하고 있지 않음</label>
+        <label><input type="checkbox" id="cond-d" onchange="clRecalc()"> D. 손절 기준이 명확함</label>
+      </div>
+    </div>
+    """
+
+    total_bar = """
+    <div class="cl-total-bar">
+      <div class="cl-total-num" id="cl-total-num">0</div>
+      <div style="color:var(--muted);font-size:13px">/ 100</div>
+      <span class="cl-verdict badge ok" id="cl-verdict">-</span>
+    </div>
+    """
+
+    body = topbar + sections_html + pl_card + mandatory_card + total_bar + f"<script>{_CHECKLIST_JS}</script>"
+    return _page_shell(f"{corp.corp_name} 체크리스트 - DART Analyzer", body)
