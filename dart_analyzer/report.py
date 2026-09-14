@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 
-from dart_analyzer.bonds import BondIssuance, fetch_bond_issuances
+from dart_analyzer.bonds import BondIssuance, attach_price_around_issuance, fetch_bond_issuances
 from dart_analyzer.corp_code import Corp, find_corp
 from dart_analyzer.corp_group import Affiliate, DividendItem, fetch_affiliates, fetch_dividend_info
 from dart_analyzer.documents import KeywordHit, fetch_document_text, find_recent_reports, search_keywords
@@ -53,6 +53,7 @@ def build_report(query: str, years_back: int = 5, bonds_only: bool = False, doc_
     bgn_de = (date.today() - timedelta(days=365 * years_back)).strftime("%Y%m%d")
     end_de = date.today().strftime("%Y%m%d")
     report.bonds = fetch_bond_issuances(corp.corp_code, bgn_de, end_de)
+    attach_price_around_issuance(report.bonds, corp.stock_code)
 
     if bonds_only:
         return report

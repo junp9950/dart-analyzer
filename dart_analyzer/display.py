@@ -58,6 +58,8 @@ def _render_bonds(report: CompanyReport) -> None:
     table.add_column("금액", justify="right")
     table.add_column("표면이자율", justify="right")
     table.add_column("방식")
+    table.add_column("발행전 10일", justify="right")
+    table.add_column("발행후 10일", justify="right")
     for b in report.bonds:
         table.add_row(
             b.bond_type,
@@ -66,6 +68,8 @@ def _render_bonds(report: CompanyReport) -> None:
             fmt_amount(b.face_amount),
             f"{b.coupon_rate:.1f}%" if b.coupon_rate is not None else "-",
             b.issue_method,
+            f"{b.price_change_before_pct:+.1f}%" if b.price_change_before_pct is not None else "-",
+            f"{b.price_change_after_pct:+.1f}%" if b.price_change_after_pct is not None else "-",
         )
     console.print(table)
 

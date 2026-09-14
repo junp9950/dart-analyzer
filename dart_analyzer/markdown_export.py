@@ -20,11 +20,18 @@ def report_to_markdown(report: CompanyReport, bonds_only: bool = False) -> str:
         lines.append("")
 
     if report.bonds:
-        lines += ["## 사채 발행 이력", "", "| 종류 | 납입일 | 만기일 | 금액 | 표면이자율 | 방식 |", "|---|---|---|---|---|---|"]
+        lines += [
+            "## 사채 발행 이력", "",
+            "| 종류 | 납입일 | 만기일 | 금액 | 표면이자율 | 방식 | 발행전 10일 | 발행후 10일 |",
+            "|---|---|---|---|---|---|---|---|",
+        ]
         for b in report.bonds:
+            before = f"{b.price_change_before_pct:+.1f}%" if b.price_change_before_pct is not None else "-"
+            after = f"{b.price_change_after_pct:+.1f}%" if b.price_change_after_pct is not None else "-"
             lines.append(
                 f"| {b.bond_type} | {b.payment_date or b.resolution_date or '-'} | {b.maturity_date or '-'} "
-                f"| {fmt_amount(b.face_amount)} | {b.coupon_rate if b.coupon_rate is not None else '-'}% | {b.issue_method} |"
+                f"| {fmt_amount(b.face_amount)} | {b.coupon_rate if b.coupon_rate is not None else '-'}% "
+                f"| {b.issue_method} | {before} | {after} |"
             )
         lines.append("")
 

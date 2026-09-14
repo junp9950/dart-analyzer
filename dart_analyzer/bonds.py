@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
+import FinanceDataReader as fdr
 import requests
 
 from dart_analyzer.config import get_api_key
@@ -32,6 +33,11 @@ class BondIssuance:
     yield_rate: float | None  # 만기이자율 (bd_intr_sf), %
     issue_method: str  # 사모/공모 (bdis_mthn)
     bond_kind_desc: str  # 사채의 종류 상세 (bd_knd)
+    price_before: float | None = None  # 발행일 기준 10영업일 전 종가
+    price_at_issue: float | None = None  # 발행일(납입일) 당일 또는 가장 가까운 거래일 종가
+    price_after: float | None = None  # 발행일 기준 10영업일 후 종가
+    price_change_before_pct: float | None = None  # (당일 - 10일전)/10일전 * 100
+    price_change_after_pct: float | None = None  # (10일후 - 당일)/당일 * 100
 
 
 def _parse_korean_date(s: str | None) -> date | None:
@@ -104,3 +110,49 @@ def fetch_bond_issuances(
         all_issuances.extend(_fetch_one_type(corp_code, bt, bgn_de, end_de))
     all_issuances.sort(key=lambda x: x.payment_date or x.resolution_date or date.min)
     return all_issuances
+
+
+def attach_price_around_issuance(bonds: list[BondIssuance], stock_code: str, window_business_days: int = 10) -> None:
+    """각 사채 발행일(납입일) 기준 ±N영업일 종가와 변동률을 bonds 리스트에 채워넣는다 (in-place).
+
+    비상장 발행법인(stock_code 없음)이나 가격 데이터가 부족한 구간은 조용히 건너뛴다.
+    """
+    if not stock_code:
+        return
+    dated = [b for b in bonds if b.payment_date or b.resolution_date]
+    if not dated:
+        return
+
+    anchor_dates = [b.payment_date or b.resolution_date for b in dated]
+    start = min(anchor_dates) - timedelta(days=window_business_days * 2 + 10)
+    end = min(date.today(), max(anchor_dates) + timedelta(days=window_business_days * 2 + 10))
+
+    try:
+        df = fdr.DataReader(stock_code, start.isoformat(), end.isoformat())
+    except Exception:
+        return
+    if df is None or df.empty:
+        return
+
+    closes = df["Close"]  # index: 거래일(Timestamp), 오름차순
+
+    for bond in dated:
+        anchor = bond.payment_date or bond.resolution_date
+        idx = closes.index.searchsorted(anchor.isoformat())
+        if idx >= len(closes):
+            idx = len(closes) - 1
+
+        before_idx = idx - window_business_days
+        after_idx = idx + window_business_days
+
+        at_price = float(closes.iloc[idx]) if 0 <= idx < len(closes) else None
+        before_price = float(closes.iloc[before_idx]) if 0 <= before_idx < len(closes) else None
+        after_price = float(closes.iloc[after_idx]) if 0 <= after_idx < len(closes) else None
+
+        bond.price_at_issue = at_price
+        bond.price_before = before_price
+        bond.price_after = after_price
+        if before_price and at_price:
+            bond.price_change_before_pct = round((at_price - before_price) / before_price * 100, 2)
+        if at_price and after_price:
+            bond.price_change_after_pct = round((after_price - at_price) / at_price * 100, 2)
