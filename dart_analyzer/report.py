@@ -8,6 +8,15 @@ from dart_analyzer.corp_code import Corp, find_corp
 from dart_analyzer.corp_group import Affiliate, DividendItem, fetch_affiliates, fetch_dividend_info
 from dart_analyzer.documents import KeywordHit, fetch_document_text, find_recent_reports, search_keywords
 from dart_analyzer.financials import REPORT_CODES, FinancialSnapshot, fetch_financial_trend
+from dart_analyzer.governance import (
+    AuditOpinion,
+    CapitalIncrease,
+    Litigation,
+    detect_auditor_changes,
+    fetch_audit_opinions,
+    fetch_capital_increases,
+    fetch_litigations,
+)
 from dart_analyzer.ownership import MajorShareholder, OwnershipChange, fetch_major_shareholders, fetch_ownership_changes
 
 
@@ -22,6 +31,10 @@ class CompanyReport:
     dividends: list[DividendItem] = field(default_factory=list)
     keyword_hits: list[KeywordHit] = field(default_factory=list)
     keyword_source_report: str = ""
+    audit_opinions: list[AuditOpinion] = field(default_factory=list)
+    auditor_changes: list[str] = field(default_factory=list)
+    capital_increases: list[CapitalIncrease] = field(default_factory=list)
+    litigations: list[Litigation] = field(default_factory=list)
 
 
 def _attach_keyword_search(report: CompanyReport, corp_code: str) -> None:
@@ -63,12 +76,18 @@ def build_report(query: str, years_back: int = 5, bonds_only: bool = False, doc_
     latest_year = years[-1]
     report.shareholders = fetch_major_shareholders(corp.corp_code, latest_year, REPORT_CODES["annual"])
     if not report.shareholders and len(years) > 1:
-        # 최신 연도 사업보고서가 아직 안 나왔으면 전년도로 재시도
-        report.shareholders = fetch_major_shareholders(corp.corp_code, years[-2], REPORT_CODES["annual"])
+        # 최신 연도(예: 올해) 사업보고서가 아직 안 나왔으면 전년도로 재시도
+        latest_year = years[-2]
+        report.shareholders = fetch_major_shareholders(corp.corp_code, latest_year, REPORT_CODES["annual"])
 
     report.ownership_changes = fetch_ownership_changes(corp.corp_code)
     report.affiliates = fetch_affiliates(corp.corp_code, latest_year, REPORT_CODES["annual"])
     report.dividends = fetch_dividend_info(corp.corp_code, latest_year, REPORT_CODES["annual"])
+
+    report.audit_opinions = fetch_audit_opinions(corp.corp_code, latest_year, REPORT_CODES["annual"])
+    report.auditor_changes = detect_auditor_changes(report.audit_opinions)
+    report.capital_increases = fetch_capital_increases(corp.corp_code, bgn_de, end_de)
+    report.litigations = fetch_litigations(corp.corp_code, bgn_de, end_de)
 
     if doc_search:
         _attach_keyword_search(report, corp.corp_code)

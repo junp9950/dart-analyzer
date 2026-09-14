@@ -20,6 +20,7 @@ def render_report(report: CompanyReport, bonds_only: bool = False) -> None:
         _render_ownership(report)
         _render_affiliates(report)
         _render_dividends(report)
+        _render_governance(report)
         _render_keyword_hits(report)
 
 
@@ -141,6 +142,46 @@ def _render_dividends(report: CompanyReport) -> None:
     for d in report.dividends:
         table.add_row(d.label, d.stock_kind, d.this_term, d.prev_term, d.before_prev_term)
     console.print(table)
+
+
+def _render_governance(report: CompanyReport) -> None:
+    if report.audit_opinions:
+        table = Table(title="감사의견 및 강조사항")
+        table.add_column("기수")
+        table.add_column("감사인")
+        table.add_column("의견")
+        table.add_column("강조사항")
+        table.add_column("핵심감사사항")
+        for o in report.audit_opinions:
+            table.add_row(o.period_label, o.auditor, o.opinion, o.emphasis_matter, o.core_audit_matter)
+        console.print(table)
+        if report.auditor_changes:
+            console.print(f"[yellow]감사인 변경 이력:[/yellow] {'; '.join(report.auditor_changes)}")
+
+    if report.capital_increases:
+        table2 = Table(title=f"유상증자 결정 이력 ({len(report.capital_increases)}건)")
+        table2.add_column("방식")
+        table2.add_column("신주 수", justify="right")
+        table2.add_column("운영자금 목적")
+        table2.add_column("채무상환 목적")
+        for c in report.capital_increases:
+            table2.add_row(
+                c.method,
+                f"{c.new_shares:,.0f}" if c.new_shares is not None else "-",
+                c.purpose_operation,
+                c.purpose_debt_repayment,
+            )
+        console.print(table2)
+
+    if report.litigations:
+        table3 = Table(title=f"소송 등의 제기 ({len(report.litigations)}건)")
+        table3.add_column("제기일")
+        table3.add_column("사건명")
+        table3.add_column("법원")
+        table3.add_column("원고/신청인")
+        for l in report.litigations:
+            table3.add_row(str(l.filed_date or "-"), l.case_name, l.court, l.plaintiff)
+        console.print(table3)
 
 
 def _render_keyword_hits(report: CompanyReport) -> None:

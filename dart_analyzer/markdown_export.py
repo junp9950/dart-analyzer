@@ -51,6 +51,28 @@ def report_to_markdown(report: CompanyReport, bonds_only: bool = False) -> str:
             lines.append(f"| {d.label} | {d.stock_kind} | {d.this_term} | {d.prev_term} | {d.before_prev_term} |")
         lines.append("")
 
+    if not bonds_only and report.audit_opinions:
+        lines += ["## 감사의견 및 강조사항", "", "| 기수 | 감사인 | 의견 | 강조사항 | 핵심감사사항 |", "|---|---|---|---|---|"]
+        for o in report.audit_opinions:
+            lines.append(f"| {o.period_label} | {o.auditor} | {o.opinion} | {o.emphasis_matter} | {o.core_audit_matter} |")
+        if report.auditor_changes:
+            lines.append("")
+            lines.append(f"**감사인 변경 이력**: {'; '.join(report.auditor_changes)}")
+        lines.append("")
+
+    if not bonds_only and report.capital_increases:
+        lines += ["## 유상증자 결정 이력", "", "| 방식 | 신주 수 | 운영자금 목적 | 채무상환 목적 |", "|---|---|---|---|"]
+        for c in report.capital_increases:
+            shares = f"{c.new_shares:,.0f}" if c.new_shares is not None else "-"
+            lines.append(f"| {c.method} | {shares} | {c.purpose_operation} | {c.purpose_debt_repayment} |")
+        lines.append("")
+
+    if not bonds_only and report.litigations:
+        lines += ["## 소송 등의 제기", "", "| 제기일 | 사건명 | 법원 | 원고/신청인 |", "|---|---|---|---|"]
+        for l in report.litigations:
+            lines.append(f"| {l.filed_date or '-'} | {l.case_name} | {l.court} | {l.plaintiff} |")
+        lines.append("")
+
     if not bonds_only and report.keyword_hits:
         lines += [f"## 원문 키워드 검색 결과 — {report.keyword_source_report}", "", "| 키워드 | 문맥 |", "|---|---|"]
         for h in report.keyword_hits:
