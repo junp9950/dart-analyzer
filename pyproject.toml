@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dart-analyzer"
+version = "0.1.0"
+description = "OpenDART 기반 기업 공시 분석 도구"
+requires-python = ">=3.10"
+dependencies = [
+    "requests",
+    "pandas",
+    "rich",
+    "python-dotenv",
+]
+
+[tool.setuptools]
+packages = ["dart_analyzer"]
