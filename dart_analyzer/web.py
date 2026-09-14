@@ -59,6 +59,14 @@ tr:hover td{background:#1b212a}
 .reason-line{font-size:13px;color:var(--muted);padding-left:14px;border-left:2px solid var(--border)}
 .reason-line b{color:var(--text);font-weight:600}
 .search-form{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:16px}
+.topsearch{
+  position:sticky;top:0;z-index:10;background:var(--bg);
+  padding:10px 0 16px;margin:-32px 0 20px;border-bottom:1px solid var(--border);
+}
+.search-form.compact{margin-top:0}
+.search-form.compact input[type=text]{width:200px;padding:8px 12px;font-size:13px}
+.search-form.compact button{padding:8px 16px;font-size:13px}
+.search-form.compact label{font-size:12px}
 input[type=text]{
   background:#0d1117;border:1px solid var(--border);color:var(--text);border-radius:8px;
   padding:10px 14px;font-size:14px;width:260px;
@@ -73,6 +81,18 @@ label{font-size:13px;color:var(--muted);display:flex;align-items:center;gap:6px}
 .note{color:var(--muted);font-size:12px;margin-top:8px}
 .error{color:var(--bad);font-size:14px}
 """
+
+
+def _search_bar_html(value: str = "", doc_search_checked: bool = False, compact: bool = False) -> str:
+    checked = "checked" if doc_search_checked else ""
+    extra_class = " compact" if compact else ""
+    return f"""
+    <form class="search-form{extra_class}" action="/analyze" method="get">
+      <input type="text" name="q" placeholder="예: 삼성전자, 두산로보틱스, 005930" value="{value}" required>
+      <label><input type="checkbox" name="doc_search" value="1" {checked}> 원문 키워드 검색 포함 (느림)</label>
+      <button type="submit">조회</button>
+    </form>
+    """
 
 
 def _grade_class(grade: str) -> str:
@@ -166,15 +186,11 @@ def _report_to_html(md: str) -> str:
 
 @app.get("/", response_class=HTMLResponse)
 def index() -> str:
-    body = """
+    body = f"""
     <h1>DART Analyzer</h1>
     <p style="color:var(--muted)">종목명 또는 종목코드로 재무·사채·지분·지배구조를 분석합니다.</p>
     <div class="card">
-      <form class="search-form" action="/analyze" method="get">
-        <input type="text" name="q" placeholder="예: 삼성전자, 두산로보틱스, 005930" required>
-        <label><input type="checkbox" name="doc_search" value="1"> 원문 키워드 검색 포함 (느림)</label>
-        <button type="submit">조회</button>
-      </form>
+      {_search_bar_html()}
     </div>
     """
     return _page_shell("DART Analyzer", body)
@@ -182,10 +198,12 @@ def index() -> str:
 
 @app.get("/analyze", response_class=HTMLResponse)
 def analyze(q: str = Query(..., description="종목명 또는 종목코드"), doc_search: bool = False) -> str:
+    topsearch = f"<div class='topsearch'>{_search_bar_html(value=q, doc_search_checked=doc_search, compact=True)}</div>"
+
     try:
         report = build_report(q, doc_search=doc_search)
     except ValueError as e:
-        body = f"<h1>DART Analyzer</h1><div class='card error'>오류: {e}</div><p><a href='/'>다시 조회</a></p>"
+        body = f"{topsearch}<h1>DART Analyzer</h1><div class='card error'>오류: {e}</div>"
         return _page_shell("DART Analyzer", body)
 
     score = calculate_investment_score(report)
@@ -194,12 +212,13 @@ def analyze(q: str = Query(..., description="종목명 또는 종목코드"), do
     md = "\n".join(md.splitlines()[1:])  # 첫 줄(# 회사명)은 topbar에서 이미 보여주므로 제외
 
     topbar = f"""
+    {topsearch}
     <div class="topbar">
       <h1>{corp.corp_name} <span style="color:var(--muted);font-weight:400;font-size:16px">({corp.stock_code or corp.corp_code})</span></h1>
       <span class="badge {_grade_class(score.grade)}">{score.grade}</span>
     </div>
     """
-    body = topbar + _score_hero_html(score) + _report_to_html(md) + "<p><a href='/'>&larr; 다시 조회</a></p>"
+    body = topbar + _score_hero_html(score) + _report_to_html(md)
     return _page_shell(f"{corp.corp_name} - DART Analyzer", body)
 
 
