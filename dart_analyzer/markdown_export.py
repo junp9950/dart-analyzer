@@ -4,9 +4,22 @@ from dart_analyzer.formatting import fmt_amount
 from dart_analyzer.report import CompanyReport
 
 
-def report_to_markdown(report: CompanyReport, bonds_only: bool = False) -> str:
+def report_to_markdown(report: CompanyReport, bonds_only: bool = False, score=None) -> str:
     corp = report.corp
     lines = [f"# {corp.corp_name} ({corp.stock_code or corp.corp_code})", ""]
+
+    if score is not None:
+        lines += [
+            f"**종합 스크리닝 점수: {score.total:.1f} / 100 ({score.grade})**",
+            "",
+            "*통계적으로 검증된 수익률 예측 점수가 아니라, 규칙 기반 리스크 스크리닝 참고용입니다.*",
+            "",
+            "| 항목 | 점수 | 사유 |", "|---|---|---|",
+        ]
+        for cat in score.categories:
+            reason_text = " / ".join(r.reason for r in cat.reasons).replace("|", "/")
+            lines.append(f"| {cat.name} | {cat.score:.0f} / {cat.max_score:.0f} | {reason_text} |")
+        lines.append("")
 
     if not bonds_only and report.financials:
         lines += ["## 재무제표 추이 (연결)", "", "| 연도 | 매출액 | 영업이익 | 당기순이익 | 이익잉여금 | 부채비율 |", "|---|---|---|---|---|---|"]

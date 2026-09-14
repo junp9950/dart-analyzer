@@ -3,9 +3,10 @@ from __future__ import annotations
 import argparse
 import sys
 
-from dart_analyzer.display import console, render_report
+from dart_analyzer.display import console, render_investment_score, render_report
 from dart_analyzer.markdown_export import report_to_markdown
 from dart_analyzer.report import build_report
+from dart_analyzer.scoring import calculate_investment_score
 
 
 def main() -> None:
@@ -19,6 +20,10 @@ def main() -> None:
         "--doc-search", action="store_true",
         help="최근 정기보고서 원문에서 대여금/특수관계자 등 키워드 문맥 검색 (원문이 커서 느릴 수 있음)",
     )
+    parser.add_argument(
+        "--no-score", action="store_true",
+        help="종합 스크리닝 점수(100점 만점) 계산 생략",
+    )
     args = parser.parse_args()
 
     targets = args.compare or args.companies
@@ -27,6 +32,7 @@ def main() -> None:
         sys.exit(1)
 
     reports = []
+    scores = []
     for query in targets:
         try:
             report = build_report(
@@ -38,8 +44,16 @@ def main() -> None:
         reports.append(report)
         render_report(report, bonds_only=args.bonds_only)
 
+        score = None
+        if not args.bonds_only and not args.no_score:
+            score = calculate_investment_score(report)
+            render_investment_score(score)
+        scores.append(score)
+
     if args.markdown and reports:
-        md = "\n\n---\n\n".join(report_to_markdown(r, bonds_only=args.bonds_only) for r in reports)
+        md = "\n\n---\n\n".join(
+            report_to_markdown(r, bonds_only=args.bonds_only, score=s) for r, s in zip(reports, scores)
+        )
         with open(args.markdown, "w", encoding="utf-8") as f:
             f.write(md)
         console.print(f"[green]마크다운 리포트 저장됨: {args.markdown}[/green]")

@@ -193,3 +193,19 @@ def _render_keyword_hits(report: CompanyReport) -> None:
     for h in report.keyword_hits:
         table.add_row(h.keyword, h.context)
     console.print(table)
+
+
+def render_investment_score(score) -> None:  # score: InvestmentScore (지연 import로 순환참조 회피)
+    grade_color = {"양호": "green", "보통": "cyan", "주의": "yellow", "위험": "red"}.get(score.grade, "white")
+    console.print(
+        f"\n[bold]종합 스크리닝 점수: [{grade_color}]{score.total:.1f} / 100 ({score.grade})[/{grade_color}][/bold]"
+        f"  [dim](통계적으로 검증된 수익률 예측 점수가 아니라, 규칙 기반 리스크 스크리닝 참고용입니다)[/dim]"
+    )
+    table = Table(title="항목별 점수")
+    table.add_column("항목")
+    table.add_column("점수", justify="right")
+    table.add_column("사유")
+    for cat in score.categories:
+        reason_text = " / ".join(r.reason for r in cat.reasons)
+        table.add_row(cat.name, f"{cat.score:.0f} / {cat.max_score:.0f}", reason_text)
+    console.print(table)
